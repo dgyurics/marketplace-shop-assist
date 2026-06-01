@@ -8,11 +8,13 @@ Built as a companion to [marketplace](https://github.com/dgyurics/marketplace).
 
 ## How it works
 
-A RAG (Retrieval-Augmented Generation) pipeline:
+When a query is received from the marketplace backend:
 
-1. Product data is embedded into vectors and stored in memory
-2. A customer query is embedded the same way and matched against the catalog via cosine similarity
-3. The top matches are passed to a local LLM, which returns a natural language answer
+1. Query is embedded using a local model (Ollama)
+2. Vector similarity search finds candidate products
+3. Top-K products are passed to the LLM
+4. LLM returns a ranked + natural language response
+5. Response is returned to the marketplace API
 
 ## Stack
 
@@ -20,6 +22,20 @@ A RAG (Retrieval-Augmented Generation) pipeline:
 - **Ollama** — runs the LLM and embedding model locally, no API keys needed
 - **In-memory vector store** — cosine similarity search, no database required
 - **Static seed data** — hardcoded products mirroring the marketplace schema
+
+## Architecture
+
+This service runs as an optional sidecar alongside the main marketplace backend.
+
+Marketplace UI
+    ↓
+Marketplace API (Go)
+    ↓
+gRPC (or HTTP fallback)
+    ↓
+AI Sidecar (this service)
+    ↓
+Vector search + LLM (Ollama)
 
 ## Future
 
