@@ -7,17 +7,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
+	"regexp"
+	"sort"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
 
 type Product struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Price       int64   `json:"price"`
-	Description *string `json:"description,omitempty"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Price       int64           `json:"price"`
+	Description *string         `json:"description,omitempty"`
+	Details     json.RawMessage `json:"details,omitempty"`
 }
 
 type Entry struct {
@@ -50,9 +55,17 @@ func embed(ctx context.Context, text string) ([]float64, error) {
 	return result.Embedding, nil
 }
 
+var htmlTags = regexp.MustCompile(`<[^>]+>`)
+
+func stripHTML(s string) string {
+	s = htmlTags.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
+}
+
 func seed(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id::text, name, description, price
+		SELECT id::text, name, description, price, details
 		FROM products
 		WHERE is_deleted = false
 	`)
@@ -64,16 +77,28 @@ func seed(ctx context.Context, db *sql.DB) error {
 	var count int
 	for rows.Next() {
 		var p Product
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Price, &p.Details); err != nil {
 			return fmt.Errorf("scan product: %w", err)
 		}
 
 		desc := ""
 		if p.Description != nil {
-			desc = *p.Description
+			desc = stripHTML(*p.Description)
+			p.Description = &desc
 		}
 
-		vec, err := embed(ctx, fmt.Sprintf("%s. %s. Price: $%.2f", p.Name, desc, float64(p.Price)/100))
+		details := ""
+		if p.Details != nil {
+			var attrs map[string]interface{}
+			json.Unmarshal(p.Details, &attrs)
+			var parts []string
+			for k, v := range attrs {
+				parts = append(parts, fmt.Sprintf("%s: %v", k, v))
+			}
+			details = strings.Join(parts, ", ")
+		}
+
+		vec, err := embed(ctx, fmt.Sprintf("%s. %s. Price: $%.2f %s", p.Name, desc, float64(p.Price)/100, details))
 		if err != nil {
 			return fmt.Errorf("embed product %s: %w", p.ID, err)
 		}
@@ -88,6 +113,56 @@ func seed(ctx context.Context, db *sql.DB) error {
 
 	slog.Info("Seeding complete", "products", count)
 	return nil
+}
+
+// cosineSimilarity measures how similar two vectors are by computing the cosine
+// of the angle between them.
+//
+// The dot product of two vectors tells you how much they point in the same
+// direction, but it's affected by the length of the vectors — two long vectors
+// will have a bigger dot product than two short ones even if they point the
+// same way. So we divide by both lengths to cancel that out. What's left is
+// purely the angle between them, which is all we care about.
+//
+//	cos(0°)  = 1.0  → same direction, identical meaning
+//	cos(90°) = 0.0  → perpendicular, unrelated
+//	cos(180°) = -1.0 → opposite directions
+//
+// We never actually compute the angle itself — just its cosine, which is
+// enough to rank results by similarity.
+func cosineSimilarity(a, b []float64) float64 {
+	var dot, normA, normB float64
+	for i := range a {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+func topMatches(queryVec []float64, k int) []Product {
+	type scored struct {
+		product Product
+		score   float64
+	}
+	scores := make([]scored, len(store))
+	for i, e := range store {
+		scores[i] = scored{e.Product, cosineSimilarity(queryVec, e.Embedding)}
+	}
+
+	// Return top k results
+	sort.Slice(scores, func(i, j int) bool { return scores[i].score > scores[j].score })
+	if k > len(scores) {
+		k = len(scores)
+	}
+	results := make([]Product, k)
+	for i := range results {
+		results[i] = scores[i].product
+	}
+	return results
 }
 
 func handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -111,11 +186,10 @@ func handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// matches := topMatches(queryVec, 5)
+	matches := topMatches(queryVec, 5)
 
 	w.Header().Set("Content-Type", "application/json")
-	// json.NewEncoder(w).Encode(matches)
-	json.NewEncoder(w).Encode(queryVec)
+	json.NewEncoder(w).Encode(matches)
 }
 
 func debug(w http.ResponseWriter, r *http.Request) {
