@@ -2,41 +2,31 @@
   <img src="https://github.com/dgyurics/marketplace/blob/main/logo.webp?raw=true" alt="marketplace">
 </p>
 
-Proof of concept. A self-hosted AI sidecar service that lets customers find products using natural language instead of keyword search. Ask it _"a lamp for my office, under $500"_ and it returns the most relevant products.
+Proof of concept. AI-powered product search for Marketplace. Users can search with natural language instead of keywords:
 
-Built as a companion to [marketplace](https://github.com/dgyurics/marketplace).
+> "A lamp for my office under $500"
 
-## How it works
+The service performs semantic search using vector embeddings, retrieves relevant products, and uses an LLM to generate ranked results.
 
-When a query is received from the marketplace backend:
+Built as a companion to Marketplace.
 
-1. Query is embedded using a local model (Ollama)
-2. Vector similarity search finds candidate products
-3. Top-K products are passed to the LLM
-4. LLM returns a ranked + natural language response
-5. Response is returned to the marketplace API
+## How It Works
+
+1. Generate embeddings for product data and store them in a vector index
+2. Generate an embedding for the user's query
+3. Perform cosine similarity search to retrieve the most relevant products
+4. Pass the top results to the LLM as contextual data (Retrieval-Augmented Generation)
+5. Return a ranked, natural-language response
 
 ## Stack
 
-- **Go** — single HTTP endpoint (`POST /query`)
-- **Ollama** — runs the LLM and embedding model locally, no API keys needed
-- **In-memory vector store** — cosine similarity search, no database required
-- **Static seed data** — hardcoded products mirroring the marketplace schema
+- Go — HTTP API (POST /query)
+- Ollama — local LLM and embedding models
+- In-memory vector store — cosine similarity search
+- Seed data — sample products matching the Marketplace schema
 
-## Architecture
+## Future Work
 
-This service runs as an optional sidecar alongside the main marketplace backend.
-
-Marketplace UI
-    ↓
-Marketplace API (Go)
-    ↓
-gRPC (or HTTP fallback)
-    ↓
-AI Sidecar (this service)
-    ↓
-Vector search + LLM (Ollama)
-
-## Future
-
-Swap the in-memory store for pgvector and point it at the marketplace's existing Postgres instance.
+- Replace the in-memory vector store with pgvector
+- Index products directly from Marketplace PostgreSQL
+- Support incremental re-indexing and larger catalogs
