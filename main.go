@@ -91,7 +91,31 @@ func seed(ctx context.Context, db *sql.DB) error {
 }
 
 func handleQuery(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not yet implemented", http.StatusNotImplemented)
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Query == "" {
+		http.Error(w, "missing query", http.StatusBadRequest)
+		return
+	}
+
+	queryVec, err := embed(r.Context(), req.Query)
+	if err != nil {
+		slog.Error("Failed to embed query", "error", err)
+		http.Error(w, "embedding failed", http.StatusInternalServerError)
+		return
+	}
+
+	// matches := topMatches(queryVec, 5)
+
+	w.Header().Set("Content-Type", "application/json")
+	// json.NewEncoder(w).Encode(matches)
+	json.NewEncoder(w).Encode(queryVec)
 }
 
 func debug(w http.ResponseWriter, r *http.Request) {
