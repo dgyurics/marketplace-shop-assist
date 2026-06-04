@@ -1,0 +1,61 @@
+name: shop-assist
+
+services:
+  # ollama:
+  #   container_name: ollama
+  #   image: ollama/ollama:latest
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+    # Expose only internally — shop-assist talks to it via service name
+    # Uncomment below if you want to hit Ollama from your host machine:
+    # ports:
+    #   - "11434:11434"
+
+  # Pulls required models on first run, then exits. Safe to re-run.
+  # ollama-pull:
+  #   container_name: ollama-pull
+  #   image: ollama/ollama:latest
+  #   restart: on-failure
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   command:
+  #     - |
+  #       ollama pull nomic-embed-text
+  #       ollama pull llama3.2
+  #   environment:
+  #     - OLLAMA_HOST=http://ollama:11434
+  #   depends_on:
+  #     - ollama
+
+  shop-assist:
+    container_name: shop-assist
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - EMBED_MODEL=nomic-embed-text
+      - CHAT_MODEL=llama3.2
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=marketplace
+      - DB_SSLMODE=disable
+      - PORT=8080
+    # depends_on:
+    #   - ollama
+    #   - ollama-pull
+    networks:
+      - default # shop-assist internal network
+      - marketplace-dev_default      # existing marketplace network (postgres lives here)
+
+# volumes:
+#   ollama-data:
+
+networks:
+  marketplace-dev_default:
+    external: true

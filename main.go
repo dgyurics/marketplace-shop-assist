@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -26,7 +28,26 @@ type Entry struct {
 var store []Entry
 
 func embed(ctx context.Context, text string) ([]float64, error) {
-	return nil, nil
+	body, _ := json.Marshal(map[string]string{
+		"model":  os.Getenv("EMBED_MODEL"), // nomic-embed-text
+		"prompt": text,
+	})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, os.Getenv("OLLAMA_URL")+"/api/embeddings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Embedding []float64 `json:"embedding"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result.Embedding, nil
 }
 
 func seed(ctx context.Context, db *sql.DB) error {
@@ -58,6 +79,7 @@ func seed(ctx context.Context, db *sql.DB) error {
 		// }
 
 		// store = append(store, Entry{Product: p, Embedding: vec})
+		store = append(store, Entry{Product: p})
 		count++
 	}
 
