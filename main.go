@@ -68,18 +68,17 @@ func seed(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("scan product: %w", err)
 		}
 
-		// desc := ""
-		// if p.Description != nil {
-		// 	desc = *p.Description
-		// }
+		desc := ""
+		if p.Description != nil {
+			desc = *p.Description
+		}
 
-		// vec, err := embed(ctx, fmt.Sprintf("%s. %s. Price: $%.2f", p.Name, desc, float64(p.Price)/100))
-		// if err != nil {
-		// 	return fmt.Errorf("embed product %s: %w", p.ID, err)
-		// }
+		vec, err := embed(ctx, fmt.Sprintf("%s. %s. Price: $%.2f", p.Name, desc, float64(p.Price)/100))
+		if err != nil {
+			return fmt.Errorf("embed product %s: %w", p.ID, err)
+		}
 
-		// store = append(store, Entry{Product: p, Embedding: vec})
-		store = append(store, Entry{Product: p})
+		store = append(store, Entry{Product: p, Embedding: vec})
 		count++
 	}
 
@@ -93,6 +92,20 @@ func seed(ctx context.Context, db *sql.DB) error {
 
 func handleQuery(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not yet implemented", http.StatusNotImplemented)
+}
+
+func debug(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	type summary struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		VecLen int    `json:"vec_len"`
+	}
+	summaries := make([]summary, len(store))
+	for i, e := range store {
+		summaries[i] = summary{e.Product.ID, e.Product.Name, len(e.Embedding)}
+	}
+	json.NewEncoder(w).Encode(summaries)
 }
 
 func main() {
@@ -124,6 +137,7 @@ func main() {
 		port = "8080"
 	}
 
+	http.HandleFunc("/debug", debug)
 	http.HandleFunc("/query", handleQuery)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"status":"ok","products":%d}`, len(store))
